@@ -1,0 +1,17 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+
+# Base de datos local (si usan SQLite)
+*.db
+*.sqlite
+*.sqlite3
+
+# Sistema y editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
