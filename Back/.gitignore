@@ -15,3 +15,5 @@ npm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+data/
+DEPLOY.md
