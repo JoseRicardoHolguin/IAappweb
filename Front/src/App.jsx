@@ -1,122 +1,75 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
+import { useEffect, useRef, useState } from 'react'
 import './App.css'
-
-function App() {
-  const [count, setCount] = useState(0)
-
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+const KEY = 'poster-lab-v1'
+const themes = ['Cuidado del agua', 'Consumo responsable', 'Biodiversidad', 'Energías limpias', 'Bienestar digital', 'Comunidad y colaboración']
+const stickers = ['🌱', '🌍', '💧', '☀️', '🌸', '💡', '❤️', '⭐', '🦋', '♻️', '📚', '🤝']
+const fresh = () => ({ theme: themes[Math.floor(Math.random() * themes.length)], started: false, background: '#fffdf7', items: [] })
+function initial() {
+  try { const value = JSON.parse(localStorage.getItem(KEY)); if (value && Array.isArray(value.items) && typeof value.theme === 'string') return value } catch { /* Start fresh if storage is unavailable. */ }
+  return fresh()
 }
-
-export default App
+export default function App() {
+  const [doc, setDoc] = useState(initial)
+  const [selected, setSelected] = useState(null)
+  const [tool, setTool] = useState('select')
+  const [color, setColor] = useState('#234c43')
+  const [width, setWidth] = useState(8)
+  const [status, setStatus] = useState('')
+  const [history, setHistory] = useState([])
+  const svg = useRef(null)
+  const gesture = useRef(null)
+  const item = doc.items.find(value => value.id === selected)
+  useEffect(() => {
+    const timer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(doc)) } catch { setStatus('No se pudo guardar el borrador. Descarga tu póster para conservarlo.') } }, 200)
+    return () => clearTimeout(timer)
+  }, [doc])
+  function commit(next) { setHistory(prev => [...prev.slice(-39), doc]); setDoc(next) }
+  function updateItem(changes) { commit({ ...doc, items: doc.items.map(value => value.id === selected ? { ...value, ...changes } : value) }) }
+  function point(event) { const rect = svg.current.getBoundingClientRect(); return { x: Math.max(0, Math.min(720, (event.clientX - rect.left) * 720 / rect.width)), y: Math.max(0, Math.min(960, (event.clientY - rect.top) * 960 / rect.height)) } }
+  function add(kind, value, pos = { x: 240, y: 300 }) {
+    const entry = { id: crypto.randomUUID(), kind, value, ...pos, size: kind === 'text' ? 42 : 100, color }
+    commit({ ...doc, items: [...doc.items, entry] }); setSelected(entry.id); setTool('select')
+  }
+  function down(event, entry) {
+    if (event.button !== 0) return
+    event.preventDefault(); event.stopPropagation()
+    const pos = point(event); svg.current.setPointerCapture(event.pointerId)
+    if (tool === 'brush') {
+      const stroke = { id: crypto.randomUUID(), kind: 'path', points: [pos], color, size: width }
+      gesture.current = { kind: 'brush', before: doc, id: stroke.id }
+      setDoc({ ...doc, items: [...doc.items, stroke] }); setSelected(null)
+    } else if (entry && entry.kind !== 'path') { setSelected(entry.id); gesture.current = { kind: 'move', before: doc, id: entry.id, pos, x: entry.x, y: entry.y } }
+    else setSelected(entry?.id || null)
+  }
+  function move(event) {
+    const active = gesture.current; if (!active) return
+    const pos = point(event)
+    setDoc(prev => ({ ...prev, items: prev.items.map(value => value.id !== active.id ? value : active.kind === 'brush' ? { ...value, points: [...value.points, pos] } : { ...value, x: Math.max(0, Math.min(720, active.x + pos.x - active.pos.x)), y: Math.max(0, Math.min(960, active.y + pos.y - active.pos.y)) }) }))
+  }
+  function finish() { if (gesture.current) { const before = gesture.current.before; setHistory(prev => [...prev.slice(-39), before]); gesture.current = null } }
+  async function download() {
+    setStatus('Preparando PNG…')
+    try {
+      const clone = svg.current.cloneNode(true); clone.querySelectorAll('[data-selection]').forEach(el => el.remove()); clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+      const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml;charset=utf-8' }))
+      try {
+        const img = new Image(); img.src = url; await img.decode()
+        const canvas = document.createElement('canvas'); canvas.width = 1440; canvas.height = 1920
+        canvas.getContext('2d').drawImage(img, 0, 0, 1440, 1920)
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png')); if (!blob) throw new Error('PNG')
+        const png = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = png; link.download = 'mi-poster.png'; link.click(); setTimeout(() => URL.revokeObjectURL(png), 1000)
+        setStatus('Póster descargado. Tu borrador sigue disponible aquí.')
+      } finally { URL.revokeObjectURL(url) }
+    } catch { setStatus('No se pudo exportar. Intenta descargarlo de nuevo.') }
+  }
+  return <div className="app">
+    <header><a className="brand" href="./"><span className="brand-icon">✳</span> Póster<span className="brand-light">Lab</span></a><span className="header-note">Un espacio para tus ideas</span><span className="badge">ACTIVIDAD CREATIVA</span></header>
+    {!doc.started ? <main className="welcome"><span className="eyebrow">DE LA IDEA AL LIENZO</span><h1>Una idea.<br />Muchas formas de contarla.</h1><p>Crea un póster sobre un tema asignado al azar. Combina texto, formas, stickers y tus propios trazos para comunicar tu mensaje.</p><div className="steps"><div><b>01</b><h3>Descubre tu tema</h3><p>Recibirás un tema al comenzar.</p></div><div><b>02</b><h3>Dale forma</h3><p>Arrastra elementos o dibuja en el lienzo.</p></div><div><b>03</b><h3>Comparte tu idea</h3><p>Descarga tu creación como imagen PNG.</p></div></div><button className="primary" onClick={() => commit({ ...doc, started: true })}>Comenzar mi póster →</button><small>Tu avance se guarda en este navegador. Los temas son provisionales.</small></main> : <>
+      <section className="activity"><div><span className="eyebrow">TU RETO CREATIVO</span><h1>{doc.theme}</h1><p>Convierte este tema en un mensaje visual. El lienzo es tuyo.</p></div><button className="primary" onClick={download}>↓ Descargar PNG</button></section>
+      <main className="editor"><aside className="library"><h2>Tu caja de ideas</h2><p>Arrastra al lienzo o toca para añadir.</p><h3>Herramientas</h3><div className="tools"><button className={tool === 'select' ? 'active' : ''} onClick={() => setTool('select')}>↖ Seleccionar</button><button className={tool === 'brush' ? 'active' : ''} onClick={() => { setTool('brush'); setSelected(null) }}>✎ Pincel</button></div><label>Color <input aria-label="Color del pincel y nuevos elementos" type="color" value={color} onChange={e => setColor(e.target.value)} /></label>{tool === 'brush' && <label>Grosor · {width} px<input type="range" min="2" max="40" value={width} onChange={e => setWidth(Number(e.target.value))} /></label>}<h3>Texto y formas</h3><div className="assets">{[['text', 'Tu mensaje'], ['rect', '■'], ['circle', '●']].map(([kind, value]) => <button key={kind} aria-label={`Añadir ${kind === 'text' ? 'texto' : kind === 'rect' ? 'cuadrado' : 'círculo'}`} draggable onDragStart={e => e.dataTransfer.setData('text/plain', JSON.stringify({ kind, value }))} onClick={() => add(kind, value)}>{kind === 'text' ? 'Tt Texto' : value}</button>)}</div><h3>Stickers</h3><div className="stickers">{stickers.map(value => <button key={value} aria-label={`Añadir ${value}`} draggable onDragStart={e => e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'sticker', value }))} onClick={() => add('sticker', value)}>{value}</button>)}</div><div className="tip">✦ Una idea clara puede decir mucho. Prueba con un título breve y un elemento principal.</div></aside>
+      <section className="workspace"><div className="canvas-bar"><span>MI PÓSTER <small>720 × 960</small></span><button disabled={!history.length} onClick={() => { setDoc(history.at(-1)); setHistory(history.slice(0, -1)); setSelected(null) }}>↶ Deshacer</button></div><div className="canvas-wrap"><svg ref={svg} viewBox="0 0 720 960" width="720" height="960" aria-label="Lienzo del póster" className={tool === 'brush' ? 'drawing' : ''} onPointerDown={e => down(e)} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); try { const asset = JSON.parse(e.dataTransfer.getData('text/plain')); if (['text', 'rect', 'circle', 'sticker'].includes(asset.kind) && typeof asset.value === 'string') add(asset.kind, asset.value, point(e)) } catch { /* Ignore unrelated files. */ } }}>
+      <rect width="720" height="960" fill={doc.background} />{doc.items.map(entry => entry.kind === 'path' ? <path key={entry.id} d={`M ${entry.points.map(p => `${p.x},${p.y}`).join(' L ')} l 0.01 0.01`} stroke={entry.color} strokeWidth={entry.size} fill="none" strokeLinecap="round" strokeLinejoin="round" onPointerDown={e => down(e, entry)} /> : <g key={entry.id} transform={`translate(${entry.x} ${entry.y})`} onPointerDown={e => down(e, entry)} style={{ cursor: tool === 'brush' ? 'crosshair' : 'move' }}>{entry.kind === 'rect' ? <rect width={entry.size} height={entry.size} rx="8" fill={entry.color} /> : entry.kind === 'circle' ? <circle cx={entry.size / 2} cy={entry.size / 2} r={entry.size / 2} fill={entry.color} /> : <text fontFamily="Arial, Segoe UI Emoji, sans-serif" fontSize={entry.size} fill={entry.color} dominantBaseline="hanging" xmlSpace="preserve">{entry.value.split('\n').map((line, index) => <tspan key={index} x="0" dy={index ? '1.2em' : 0}>{line || ' '}</tspan>)}</text>}{selected === entry.id && <rect data-selection x="-6" y="-6" width={entry.kind === 'text' ? Math.max(...entry.value.split('\n').map(line => line.length), 1) * entry.size * 0.65 + 12 : entry.size + 12} height={entry.kind === 'text' ? entry.size * 1.2 * entry.value.split('\n').length + 12 : entry.size + 12} fill="none" stroke="#6c65df" strokeWidth="2" strokeDasharray="6 4" pointerEvents="none" />}</g>)}</svg></div><p className="canvas-foot">{tool === 'brush' ? 'Dibuja directamente sobre el lienzo.' : 'Selecciona un elemento para moverlo y editarlo.'}</p></section>
+      <aside className="properties"><h2>Detalles</h2><label>Color del lienzo<input type="color" value={doc.background} onChange={e => commit({ ...doc, background: e.target.value })} /></label>{item ? <><hr /><h3>Elemento seleccionado</h3>{item.kind === 'text' && <label>Tu mensaje<textarea value={item.value} onChange={e => updateItem({ value: e.target.value })} /></label>}<label>{item.kind === 'path' ? 'Grosor' : 'Tamaño'} · {item.size} px<input type="range" min="4" max={item.kind === 'path' ? 40 : 280} value={item.size} onChange={e => updateItem({ size: Number(e.target.value) })} /></label>{item.kind !== 'sticker' && <label>Color<input type="color" value={item.color} onChange={e => updateItem({ color: e.target.value })} /></label>}<button onClick={() => commit({ ...doc, items: [...doc.items.filter(value => value.id !== item.id), item] })}>Traer al frente</button><button className="danger" onClick={() => { commit({ ...doc, items: doc.items.filter(value => value.id !== selected) }); setSelected(null) }}>Eliminar elemento</button></> : <p className="empty">Toca un elemento del póster para ajustar sus detalles.</p>}<div className="draft"><b>Tu borrador, a salvo</b><p>Guardado automático en este navegador. La descarga no envía una entrega al servidor.</p></div><button onClick={() => { if (window.confirm('¿Iniciar otra actividad? Se reemplazará el borrador actual.')) { commit(fresh()); setSelected(null) } }}>Nueva actividad</button></aside></main><p className="status" role="status">{status}</p>
+    </>}<footer>PÓSTER LAB <span>Imagina · Diseña · Comunica</span></footer>
+  </div>
+}
