@@ -8,7 +8,13 @@ export function createSupabaseStore({ url = process.env.SUPABASE_URL, key = proc
   if (!key.startsWith('sb_secret_')) headers.Authorization = `Bearer ${key}`;
   async function api(path, options = {}, binary = false) {
     const response = await request(`${base.origin}${path}`, { ...options, signal: AbortSignal.timeout(20000), headers: { ...headers, ...options.headers } });
-    if (!response.ok) { const error = new Error('No se pudo acceder al almacenamiento de Supabase.'); error.status = response.status; throw error; }
+    if (!response.ok) {
+      let detail; try { detail = await response.json(); } catch { /* Non-JSON error response. */ }
+      const code = typeof detail?.code === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(detail.code) ? detail.code : '';
+      const area = path.startsWith('/rest/v1/') ? path.split('?')[0] : '/storage/v1';
+      const error = new Error(`Supabase ${area}: HTTP ${response.status}${code ? ` (${code})` : ''}. Revisa SUPABASE_URL, SUPABASE_SECRET_KEY y la configuración del proyecto.`);
+      error.status = response.status; throw error;
+    }
     if (binary) return Buffer.from(await response.arrayBuffer());
     if (response.status === 204) return null;
     const text = await response.text(); return text ? JSON.parse(text) : null;
@@ -17,6 +23,12 @@ export function createSupabaseStore({ url = process.env.SUPABASE_URL, key = proc
   const table = name => `/rest/v1/${name}`;
   const get = async id => (await api(`${table('entregas')}?id=eq.${filter(id)}&limit=1`))[0];
   return {
+    async check() {
+      await api(`${table('entregas')}?select=id&limit=0`);
+      await api(`${table('sesiones_admin')}?select=token&limit=0`);
+      const config = await api(`/storage/v1/bucket/${filter(bucket)}`);
+      if (config.public !== false) throw new Error('El bucket de pósters debe ser privado.');
+    },
     async get(id) { return get(id); },
     async list() {
       const rows = [];

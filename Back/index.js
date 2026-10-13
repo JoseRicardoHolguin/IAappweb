@@ -57,6 +57,7 @@ export function createApp(directory = process.env.DATA_DIR || join(root, 'data')
   app.get('/{*path}', (req, res) => res.sendFile(join(frontend, 'index.html')));
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error);
+    if (error.status && /^Supabase /.test(error.message)) console.error(error.message);
     const status = error.type === 'entity.too.large' ? 413 : error.type === 'entity.parse.failed' ? 400 : 500;
     res.status(status).json({ error: status === 413 ? 'El PNG supera el límite permitido.' : status === 400 ? 'Solicitud inválida.' : 'No se pudo guardar o recuperar la entrega. Intenta nuevamente.' });
   });
@@ -89,7 +90,11 @@ function crc32(bytes) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const { app } = createApp();
+  const { app, store } = createApp();
+  if (store.check) {
+    try { await store.check(); console.log('Supabase: tablas y bucket privado accesibles.'); }
+    catch (error) { console.error(error.message); process.exit(1); }
+  }
   const port = Number(process.env.PORT || 3000);
   const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1';
   app.listen(port, host, () => console.log(`Servidor en puerto ${port}`));

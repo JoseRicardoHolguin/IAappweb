@@ -38,3 +38,16 @@ test('fallos remotos no confirman entregas ni eliminan un PNG con inserción inc
   await assert.rejects(store.save({id:'1'},Buffer.from('fixture')));assert.equal(deletes,0);
   assert.throws(()=>createSupabaseStore({url:'http://insecure.example',key:'x'}));
 });
+
+test('comprobación inicial valida tablas, bucket privado y errores sin revelar secretos', async()=>{
+  const paths=[];
+  const store=createSupabaseStore({url:'https://test.supabase.co',key:'sb_secret_do_not_log',request:async(path)=>{
+    paths.push(new URL(path).pathname);
+    return Response.json(path.includes('/bucket/') ? {public:false} : []);
+  }});
+  await store.check();assert.deepEqual(paths,['/rest/v1/entregas','/rest/v1/sesiones_admin','/storage/v1/bucket/posters']);
+  const bad=createSupabaseStore({url:'https://test.supabase.co',key:'sb_secret_do_not_log',request:async()=>Response.json({code:'PGRST205',message:'sensitive detail'},{status:404})});
+  await assert.rejects(bad.check(),error=>{assert.match(error.message,/HTTP 404 \(PGRST205\)/);assert.ok(!error.message.includes('sensitive detail'));assert.ok(!error.message.includes('do_not_log'));return true;});
+  const publicBucket=createSupabaseStore({url:'https://test.supabase.co',key:'sb_secret_test',request:async(path)=>Response.json(path.includes('/bucket/') ? {public:true} : [])});
+  await assert.rejects(publicBucket.check(),/privado/);
+});
