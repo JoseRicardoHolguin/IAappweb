@@ -1,6 +1,6 @@
 # Póster Lab
 
-Editor de pósters para el proyecto de tesis. React/Vite y Express/SQLite.
+Editor de pósters para el proyecto de tesis. React/Vite y Express. SQLite para uso local; PostgreSQL y Storage de Supabase para publicación gratuita en Render.
 
 ## Iniciar (dos terminales)
 
@@ -31,7 +31,7 @@ Abre la URL que indique Vite. El frontend envía `/api` al backend en `127.0.0.1
 
 El borrador y el comprobante se guardan en localStorage. Un error de red permite reintentar; el identificador de actividad evita duplicados. Para borradores de la versión anterior se solicita el código y registrar inicio ahora; no se reconstruye el tiempo anterior.
 
-## Almacenamiento
+## Almacenamiento local (STORAGE_PROVIDER=local)
 
 - PNG: `Back/data/posters/`.
 - Metadatos SQLite: `Back/data/entregas.sqlite`.
@@ -47,10 +47,11 @@ Los stickers son emojis cuyo aspecto depende del sistema. Los temas en `Front/sr
 
 ## Publicación
 
-Consulta [DEPLOY.md](DEPLOY.md). `render.yaml` prepara Express y el frontend en un servicio con disco persistente. En producción `DATA_DIR` define la carpeta de datos; por defecto local se conserva `Back/data`. La publicación aún requiere configurar la cuenta, el repositorio, la contraseña y la URL de Render.
+Consulta [DEPLOY.md](DEPLOY.md). `render.yaml` prepara un servicio Render gratuito. En producción se usa Supabase para entregas, sesiones y PNG privados; no se requiere disco ni DATA_DIR. Ejecuta `Back/supabase-setup.sql` en Supabase y configura SUPABASE_URL, SUPABASE_SECRET_KEY y SUPABASE_BUCKET=posters solo en el servidor. La publicación aún requiere conectar tu proyecto de Supabase y enviar el código al repositorio. Las entregas locales no se migran automáticamente.
 
 ## Comprobaciones
 
 - En `Front`: `npm run build` y `npm run lint`.
 - En `Back`: `npm test` comprueba entrega, reintentos, validación, descarga y persistencia con datos temporales.
+
 

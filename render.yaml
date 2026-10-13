@@ -2,21 +2,23 @@ services:
   - type: web
     name: poster-lab
     runtime: node
-    plan: starter
-    buildCommand: npm ci --prefix Front && npm run build --prefix Front && npm ci --omit=dev --prefix Back
+    plan: free
+    buildCommand: npm ci --include=dev --prefix Front && npm run build --prefix Front && npm ci --omit=dev --prefix Back
     startCommand: node Back/index.js
     healthCheckPath: /api/salud
-    disk:
-      name: poster-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
       - key: NODE_VERSION
         value: 24.13.0
-      - key: DATA_DIR
-        value: /var/data
+      - key: STORAGE_PROVIDER
+        value: supabase
+      - key: SUPABASE_BUCKET
+        value: posters
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
       - key: ADMIN_PASSWORD
         sync: false
       - key: APP_ORIGIN

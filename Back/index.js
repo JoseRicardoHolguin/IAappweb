@@ -1,7 +1,7 @@
 import express from 'express';
-import Database from 'better-sqlite3';
+import { createLocalStore } from './local-store.js';
+import { createSupabaseStore } from './supabase.js';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
@@ -11,15 +11,12 @@ import { installAdmin } from './admin.js';
 const root = fileURLToPath(new URL('.', import.meta.url));
 dotenv.config({ path: join(root, '.env'), quiet: true });
 export function createApp(directory = process.env.DATA_DIR || join(root, 'data'), options = {}) {
-  if ((options.production ?? process.env.NODE_ENV === 'production') && !process.env.DATA_DIR && !options.allowTemporaryData) throw new Error('Configura DATA_DIR con la ruta del disco persistente.');
-  mkdirSync(join(directory, 'posters'), { recursive: true });
-  const db = new Database(join(directory, 'entregas.sqlite'));
-  db.pragma('journal_mode = WAL');
-  db.exec(`CREATE TABLE IF NOT EXISTS entregas (
-    id TEXT PRIMARY KEY, participante TEXT NOT NULL, tema TEXT NOT NULL,
-    inicio TEXT NOT NULL, entrega TEXT NOT NULL, duracion_segundos INTEGER NOT NULL,
-    archivo TEXT NOT NULL
-  )`);
+  const production = options.production ?? process.env.NODE_ENV === 'production';
+  const provider = options.provider || (production ? 'supabase' : process.env.STORAGE_PROVIDER || 'local');
+  if (!['local', 'supabase'].includes(provider)) throw new Error('STORAGE_PROVIDER inválido.');
+  if (production && provider === 'local') throw new Error('En producción usa Supabase para conservar las entregas.');
+  const store = options.store || (provider === 'supabase' ? createSupabaseStore() : createLocalStore(directory));
+  const db = store.db;
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : false);
@@ -28,34 +25,31 @@ export function createApp(directory = process.env.DATA_DIR || join(root, 'data')
     next();
   });
   app.use(express.json({ limit: '12mb' }));
-  const requireAdmin = installAdmin(app, db, options);
+  const requireAdmin = installAdmin(app, store, options);
   app.get('/api/salud', (req, res) => res.json({ ok: true }));
-  app.post('/api/entregas', (req, res) => {
+  app.post('/api/entregas', async (req, res) => {
     const { id, participante, tema, inicio, png } = req.body || {};
     if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/i.test(id) || typeof participante !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(participante) || typeof tema !== 'string' || !tema.trim() || tema.length > 150 || typeof inicio !== 'string' || !Number.isFinite(Date.parse(inicio)) || Date.parse(inicio) > Date.now() || Date.now() - Date.parse(inicio) > 30 * 86400000) return res.status(400).json({ error: 'Revisa el código de participante, tema y fecha de inicio (máximo 30 días).' });
     if (typeof png !== 'string' || !/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(png)) return res.status(400).json({ error: 'Se requiere una imagen PNG válida.' });
     const buffer = Buffer.from(png.slice(22), 'base64');
     try { validatePng(buffer); } catch { return res.status(400).json({ error: 'El PNG está dañado, es demasiado grande o tiene dimensiones incorrectas.' }); }
-    const existing = db.prepare('SELECT * FROM entregas WHERE id = ?').get(id);
+    const existing = await store.get(id);
     if (existing) {
-      if (existing.participante !== participante || existing.tema !== tema || existing.inicio !== new Date(inicio).toISOString()) return res.status(409).json({ error: 'Esta actividad ya fue entregada con otros datos.' });
+      if (existing.participante !== participante || existing.tema !== tema.trim() || Date.parse(existing.inicio) !== Date.parse(inicio)) return res.status(409).json({ error: 'Esta actividad ya fue entregada con otros datos.' });
       return res.json(publicEntry(existing));
     }
     const entrega = new Date().toISOString();
     const archivo = `${randomUUID()}.png`;
     const row = { id, participante, tema: tema.trim(), inicio: new Date(inicio).toISOString(), entrega, duracion_segundos: Math.max(0, Math.round((Date.parse(entrega) - Date.parse(inicio)) / 1000)), archivo };
-    const path = join(directory, 'posters', archivo);
-    try {
-      writeFileSync(path, buffer, { flag: 'wx' });
-      db.prepare('INSERT INTO entregas VALUES (@id, @participante, @tema, @inicio, @entrega, @duracion_segundos, @archivo)').run(row);
-    } catch (error) { try { unlinkSync(path); } catch { /* No file to clean up. */ } throw error; }
-    res.status(201).json(publicEntry(row));
+    const saved = await store.save(row, buffer);
+    if (!saved.created && (saved.row.participante !== participante || saved.row.tema !== tema.trim() || Date.parse(saved.row.inicio) !== Date.parse(inicio))) return res.status(409).json({ error: 'Esta actividad ya fue entregada con otros datos.' });
+    res.status(saved.created ? 201 : 200).json(publicEntry(saved.row));
   });
-  app.get('/api/entregas', requireAdmin, (req, res) => res.json(db.prepare('SELECT * FROM entregas ORDER BY entrega DESC').all().map(publicEntry)));
-  app.get('/api/entregas/:id/png', requireAdmin, (req, res) => {
-    const row = db.prepare('SELECT * FROM entregas WHERE id = ?').get(req.params.id);
+  app.get('/api/entregas', requireAdmin, async (req, res) => res.json((await store.list()).map(publicEntry)));
+  app.get('/api/entregas/:id/png', requireAdmin, async (req, res) => {
+    const row = await store.get(req.params.id);
     if (!row) return res.status(404).json({ error: 'Entrega no encontrada.' });
-    res.download(resolve(directory, 'posters', row.archivo), `poster-${row.participante}.png`);
+    res.type('png').attachment(`poster-${row.participante}.png`).send(await store.png(row));
   });
   app.use('/api', (req, res) => res.status(404).json({ error: 'Ruta no encontrada.' }));
   const frontend = resolve(root, '../Front/dist');
@@ -66,7 +60,7 @@ export function createApp(directory = process.env.DATA_DIR || join(root, 'data')
     const status = error.type === 'entity.too.large' ? 413 : error.type === 'entity.parse.failed' ? 400 : 500;
     res.status(status).json({ error: status === 413 ? 'El PNG supera el límite permitido.' : status === 400 ? 'Solicitud inválida.' : 'No se pudo guardar o recuperar la entrega. Intenta nuevamente.' });
   });
-  return { app, db };
+  return { app, db, store };
 }
 function publicEntry({ archivo, ...row }) { return { ...row, pngUrl: `/api/entregas/${row.id}/png` }; }
 export function validatePng(buffer) {
@@ -100,3 +94,4 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1';
   app.listen(port, host, () => console.log(`Servidor en puerto ${port}`));
 }
+
